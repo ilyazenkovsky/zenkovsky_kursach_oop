@@ -1,0 +1,570 @@
+package newpackage;
+
+import com.ibm.mqtt.*;
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import javax.swing.border.EtchedBorder;
+public class MainClass  implements ActionListener, MqttSimpleCallback, Runnable
+{
+  public int liveClients = 30;
+  public int QoS = 1;
+  public String data = "";  
+  public String topic = "";  
+  public boolean cleanSessionSelected = true;
+  public boolean RetainSelected = false;
+  //
+  private JPanel AreaOfConn = new JPanel();
+  private JPanel AreaOfPub = new JPanel();
+  private JPanel AreaOfSub = new JPanel();
+  private JPanel AllCompanents = null;
+  private JFrame frame = null;
+  private JTextField id;
+  private JTextField adress;
+  private JButton disconnectButton;    
+  private JButton connectButton;
+  private AreaOfPublish publishArea;
+  private AreaOfSubscribe subscribeArea;
+  private IMqttClient newClient = null;
+  private boolean connected = false;
+  private Object WaitObject = new Object();
+  
+  protected static final Insets MARGIN_OF_TEXT = new Insets(5, 5, 5, 5);
+
+  public boolean isLWTTopicSet()
+  {
+    return !this.topic.equals("");
+  }
+  
+  public static void main(String[] args)
+  {
+    JFrame mainJFrame = null;
+    MainClass MQTTClientFrame = new MainClass();
+    mainJFrame = MQTTClientFrame.getJFrame();
+Продолжение приложения А
+
+    mainJFrame.setSize(550, 650);
+    mainJFrame.setLocation(440, 60);
+    mainJFrame.setResizable(true);
+    MQTTClientFrame.CreateFrame(mainJFrame.getContentPane());
+    mainJFrame.setVisible(true);
+    mainJFrame.addWindowListener(new WindowAdapter()
+    {
+      @Override
+      public void windowClosing(WindowEvent paramAnonymousWindowEvent)
+      {
+        System.exit(0);
+      }
+    });
+  }  
+  private JFrame getJFrame()
+  {
+    if (this.frame == null) {
+      this.frame = new JFrame();
+    }
+    this.frame.setTitle("MQTT Клиент");
+    return this.frame;
+  }  
+  protected void CreateFrame(Container paramContainer)
+  {
+       try
+    {      UIManager.setLookAndFeel("com.sun.java.swing.plaf.windows.WindowsLookAndFeel");
+    }
+    catch (Exception localException1)
+    {
+      localException1.printStackTrace();
+    }       
+    this.AreaOfConn.setLayout(new GridLayout(3, 1)); 
+    this.AreaOfConn.setBorder(new EtchedBorder());
+    this.AllCompanents = new JPanel(new BorderLayout());    
+    this.AllCompanents.add(this.AreaOfConn, "South");
+    //
+    JPanel userPanel = new JPanel();
+    userPanel.setLayout(new GridLayout(2, 1));
+    userPanel.add(this.AreaOfPub);
+    userPanel.add(this.AreaOfSub);    
+    this.AllCompanents.add(userPanel);    
+    ///*****/// 
+    JPanel ConnectionPan1 = new JPanel();   
+    JPanel ConnectionPan2 = new JPanel();   
+    JPanel ConnectionPan3 = new JPanel();   
+    //
+
+Продолжение приложения А
+
+    JLabel connection_label = new JLabel("Подключение к серверу");
+    Font Font = connection_label.getFont();
+    connection_label.setFont(new Font(Font.getName(), 1, Font.getSize() + 1));
+    //
+    this.adress = new JTextField("127.0.0.1:1883");
+    this.adress.setBackground(Color.WHITE);
+    this.adress.setPreferredSize(new Dimension(125, 35));
+    this.adress.setEditable(true);
+    //
+    this.id = new JTextField("Clien1");
+    this.id.setBackground(Color.WHITE);
+    this.id.setPreferredSize(new Dimension(100, 35));
+    this.id.setEditable(true);
+    //
+    this.connectButton = new JButton("Подключение");    
+    this.disconnectButton = new JButton("Отключение");
+    //
+    this.disconnectButton.setEnabled(false);
+    this.connectButton.addActionListener(this);
+    this.disconnectButton.addActionListener(this);    
+    //
+    JLabel id_label = new JLabel("ID: ");
+    JLabel adress_label = new JLabel("Adress: ");  
+    //
+    ConnectionPan1.add(connection_label);  
+    ConnectionPan2.add(id_label);
+    ConnectionPan2.add(this.id);
+    ConnectionPan2.add(adress_label);
+    ConnectionPan2.add(this.adress);
+    ConnectionPan3.add(this.disconnectButton);
+    ConnectionPan3.add(this.connectButton);
+    //
+    this.AreaOfConn.add(ConnectionPan1);
+    this.AreaOfConn.add(ConnectionPan2); 
+    this.AreaOfConn.add(ConnectionPan3);
+    //
+    this.publishArea = new AreaOfPublish(this.AreaOfPub, this);
+    this.subscribeArea = new AreaOfSubscribe(this.AreaOfSub, this);   
+    paramContainer.add(AllCompanents);      
+  }
+  @Override
+  public void run()
+  {
+    String str1 = this.adress.getText();
+    try
+    {
+Продолжение приложения А
+
+
+      if (!str1.contains("://")) {
+        str1 = "tcp://" + str1;
+      } 
+      Connection(str1, false);
+      
+      this.connected = true;
+      ConnectButtons(true);
+    }
+    catch (NumberFormatException localNumberFormatException)
+    {
+      JOptionPane.showMessageDialog(null, "Ошибка подключения!", "ERROR", JOptionPane.PLAIN_MESSAGE);
+    }
+    catch (Exception localException)
+    {
+      JOptionPane.showMessageDialog(null, "Ошибка подключения!", "ERROR", JOptionPane.PLAIN_MESSAGE);
+    }    
+    if (!this.connected) 
+    {
+      ConnectButtons(false);
+    }
+  }  
+  public void Connection(String address, boolean flag)    throws MqttException
+  {
+    if ((this.newClient != null) && 
+      (!address.equals(this.newClient.getConnection())))
+    {
+      this.newClient.terminate();
+      this.newClient = null;
+    }
+    if (this.newClient == null)
+    {
+      this.newClient = MqttClient.createMqttClient(address, null);
+      this.newClient.registerSimpleHandler(this);
+    }
+    this.newClient.setRetry(10);
+    String str1 = this.id.getText();
+    if (isLWTTopicSet())
+    {      this.newClient.connect(str1, this.cleanSessionSelected, (short)this.liveClients, this.topic, this.QoS, this.data, this.RetainSelected);
+    } 
+    else 
+    {
+      this.newClient.connect(str1, this.cleanSessionSelected, (short)this.liveClients);}
+Продолжение приложения А
+
+
+  }
+  public void Disconnection()
+  {
+    this.connected = false;
+    synchronized (this.WaitObject)
+    {
+      this.WaitObject.notify();
+    }
+    if (this.newClient != null) {
+      try
+      {
+        this.newClient.disconnect();
+      }
+      catch (Exception ex)
+      {
+        JOptionPane.showMessageDialog(null, "Ошибка при отключении!", "ERROR", JOptionPane.PLAIN_MESSAGE);
+        System.exit(1);
+      }
+    }
+    ConnectButtons(false);
+  }
+  
+  public void publish(String paramString, byte[] message, int qos, boolean isRetained)
+    throws Exception
+  {
+    try
+      {
+        this.newClient.publish(paramString, message, qos, isRetained);
+      }
+      catch (MqttException ex)
+      {
+        JOptionPane.showMessageDialog(null, "Ошибка публикации!", "ERROR", JOptionPane.PLAIN_MESSAGE);
+        throw ex;
+      }
+  }  
+  public void subscription(String topic, int qos, boolean sub)
+  {   
+      try
+      {
+        String[] arrOfString = new String[1];
+        int[] arrOfInt = new int[1];
+        arrOfString[0] = topic;
+        arrOfInt[0] = qos;
+        if (sub) {
+          this.newClient.subscribe(arrOfString, arrOfInt);
+Продолжение приложения А
+
+
+        } else {
+          this.newClient.unsubscribe(arrOfString);
+        }
+      }
+      catch (Exception localException)
+      {
+        JOptionPane.showMessageDialog(null, "Ошибка подписки!", "ERROR", JOptionPane.PLAIN_MESSAGE);
+      }   
+  }    
+  @Override
+  public void actionPerformed(ActionEvent paramActionEvent)
+  {
+      switch (paramActionEvent.getActionCommand()) 
+      {
+          case "Подключение":
+              if (!this.connected)
+              {this.connectButton.setEnabled(false);
+                  
+                  this.connected = false;
+                  new Thread(this).start();
+              }       break;              
+          case "Отключение":
+              Disconnection();
+//             //             
+      }
+  }  
+  @Override
+  public void connectionLost()
+    throws Exception
+  {
+    int i = -1;
+    JOptionPane.showMessageDialog(null, "Соединение потеряно!... Передподключение", "WARNING", JOptionPane.PLAIN_MESSAGE);
+    try
+    {
+      while ((i == -1) && (this.connected))
+      {
+        try
+        {
+          synchronized (this.WaitObject)
+          {
+            this.WaitObject.wait(5000L);
+          }
+        }
+        catch (InterruptedException localInterruptedException) {}
+        synchronized (this)
+        {
+Продолжение приложения А
+
+
+          if (this.connected) {
+            try
+            {
+              Connection(this.newClient.getConnection(), this.newClient.getPersistence() != null);
+              i = 0;
+            }
+            catch (MqttException localMqttException)
+            {
+              i = -1;
+            }
+          }
+        }
+      }
+    }
+    catch (Exception localException)
+    {
+      JOptionPane.showMessageDialog(null, "Соединение потеряно!", "ERROR", JOptionPane.PLAIN_MESSAGE);
+      Disconnection();
+      throw localException;
+    }
+    if (this.connected) {
+      ConnectButtons(true);
+    } else {
+      ConnectButtons(false);
+    }
+  }
+  
+  @Override
+  public void publishArrived(String paramString, byte[] paramArrayOfByte, int paramInt, boolean paramBoolean)
+  {
+    this.subscribeArea.updateReceivedData(paramString, paramArrayOfByte, paramInt, paramBoolean);
+  }
+  
+  public void updateSubscribeTopicList(String paramString)
+  {
+    this.subscribeArea.updateTopicList(paramString);
+  }  
+  public void updatePublishTopicList(String paramString)
+  {
+    this.publishArea.updateTopicList(paramString);
+  }
+  
+  public boolean updateComboBoxList(JComboBox paramJComboBox, String paramString)
+  {
+Продолжение приложения А
+
+
+    int i = paramJComboBox.getItemCount();
+    int j = 0;
+    if (paramString == null) {
+      return false;
+    }
+    for (int k = 0; k < i; k++) {
+      if (((String)paramJComboBox.getItemAt(k)).equals(paramString))
+      {
+        j = 1;
+        break;
+      }
+    }
+    if (j == 0)
+    {
+      paramJComboBox.addItem(paramString);
+      return true;
+    }
+    return false;
+  }
+  
+  private void ConnectButtons(boolean paramBoolean)
+  {
+    this.publishArea.enableButtons(paramBoolean);
+    this.subscribeArea.enableButtons(paramBoolean);
+    this.disconnectButton.setEnabled(paramBoolean);
+    this.connectButton.setEnabled(!paramBoolean);
+  }
+}
+package newpackage;
+import javax.swing.*;
+import javax.swing.event.*;
+import java.awt.*;
+import java.awt.event.*;
+import javax.swing.border.EtchedBorder;
+public class AreaOfPublish implements ActionListener, DocumentListener
+{
+  private JPanel PublishPanel; 
+  private JButton publishButton;
+  private JTextArea data;
+  private JTextField topic;
+  private MainClass MQTTComp = null;
+
+  public AreaOfPublish(JPanel PublishPanel, MainClass mqttComp)
+  {
+    this.PublishPanel = PublishPanel;
+    this.PublishPanel.setBorder(new EtchedBorder());
+            
+Продолжение приложения А
+
+
+    this.MQTTComp = mqttComp;
+    create();
+  }  
+  public void create()
+  {    
+    this.PublishPanel.setLayout(new BorderLayout());
+     //
+    JPanel PublishPanel1 = new JPanel();   
+    JPanel PublishPanel2 = new JPanel();   
+    JPanel PublishPanel3 = new JPanel(); 
+    JPanel PublishPanel4 = new JPanel();        
+    JPanel panel = new JPanel();
+    //
+    JLabel PubishLabel = new JLabel("Публикация сообщений данной тематики");
+    PubishLabel.setFont(new Font("Times new roman", Font.BOLD, 16));
+    //    
+    PublishPanel1.setLayout(new BoxLayout(PublishPanel1, 0));
+    PublishPanel1.add(new JLabel(" Тема публикации:"));
+    this.topic = new JTextField();
+    this.topic.setEditable(true);
+    PublishPanel1.add(this.topic); 
+    panel.setLayout(new BoxLayout(panel, 0));   
+    //
+    this.data = new JTextArea(3, 30);
+    this.data.setMargin(MainClass.MARGIN_OF_TEXT);
+    this.data.setFont(new Font("Times new roman", Font.PLAIN, 15));
+    this.data.setBackground(Color.WHITE);
+   
+     //
+    this.publishButton = new JButton("Опубликовать");
+    this.publishButton.setEnabled(false);
+    this.publishButton.addActionListener(this);
+    PublishPanel3.add(this.publishButton);
+    PublishPanel4.add(PublishPanel3);
+    //
+    PublishPanel2.setLayout(new GridLayout(3, 1));
+    PublishPanel2.add(PubishLabel);
+    PublishPanel2.add(PublishPanel1); 
+    PublishPanel2.add(panel);
+    //
+    this.PublishPanel.add(PublishPanel2, "North");
+    this.PublishPanel.add(new JScrollPane(this.data), "Center");
+    this.PublishPanel.add(PublishPanel4, "East");
+    //
+  }
+  
+Продолжение приложения А
+
+
+  public boolean updateTopicList(String paramString)
+  {
+    return true;
+  }
+  
+  @Override
+  public void actionPerformed(ActionEvent paramActionEvent)
+  {
+    if (paramActionEvent.getActionCommand().equals("Опубликовать"))
+    {
+      String Object1 = this.data.getText();
+      String Object2 = this.topic.getText();
+      if (updateTopicList(Object2)) {
+        this.MQTTComp.updateSubscribeTopicList(Object2);
+      }
+      try
+      {
+        this.MQTTComp.publish(Object2, Object1.getBytes(), 1, false);
+      }
+      catch (Exception localException)
+      {
+      }
+    }
+  }
+  
+  public void enableButtons(boolean b)
+  {
+    this.publishButton.setEnabled(b);
+  }
+  
+  @Override
+  public void changedUpdate(DocumentEvent paramDocumentEvent) {}
+  
+  @Override
+  public void insertUpdate(DocumentEvent paramDocumentEvent) {}
+  
+  @Override
+  public void removeUpdate(DocumentEvent paramDocumentEvent) {}
+}
+package newpackage;
+import javax.swing.*;
+import javax.swing.border.EtchedBorder;
+import java.awt.*;
+import java.awt.event.*;
+
+public class AreaOfSubscribe  implements ActionListener
+{
+Продолжение приложения А
+
+
+  private MainClass mqttMgr = null;
+  private JPanel subscribePanel;
+  private JTextField topic;
+  private JTextArea receivedData; 
+  private JLabel subcribeLabel = null;
+  private JButton subscribeButton;
+  private JButton unsubscribeButton;  
+  public AreaOfSubscribe(JPanel panel, MainClass Frame)
+  {
+    this.subscribePanel = panel;
+    this.subscribePanel.setBorder(new EtchedBorder());
+    this.mqttMgr = Frame;
+    this.subscribePanel.setLayout(new BorderLayout());
+    this.topic = new JTextField();
+    this.topic.setEditable(true);
+    this.receivedData = new JTextArea(3, 30);
+    this.receivedData.setMargin(MainClass.MARGIN_OF_TEXT);      
+    this.receivedData.setFont(new Font("Times new roman", Font.PLAIN,15));
+    this.receivedData.setEditable(false);
+    this.receivedData.setBackground(Color.WHITE);
+    JPanel panel1 = new JPanel();
+    panel1.setLayout(new BoxLayout(panel1, 0));
+    panel1.add(new JLabel(" Тема подписки:"));
+    panel1.add(this.topic);
+    JPanel panel2 = new JPanel();
+    panel2.setLayout(new BoxLayout(panel2, 0));    
+
+    JPanel panel3 = new JPanel();
+    panel3.setLayout(new GridLayout(3, 1));
+    this.subcribeLabel = new JLabel("Подписка на сообщения данной тематики");
+    this.subcribeLabel.setFont(new Font("Serif", Font.BOLD,12));
+    Font localFont = this.subcribeLabel.getFont();
+    this.subcribeLabel.setFont(new Font(localFont.getName(), 1, localFont.getSize() + 3));
+    panel3.add(this.subcribeLabel);
+    panel3.add(panel1);
+    panel3.add(panel2);
+    JPanel localJPanel4 = new JPanel();
+    JPanel JPanel5 = new JPanel();
+    JPanel5.setLayout(new GridLayout(2, 1));    
+    this.subscribeButton = new JButton("Подписаться");
+    this.subscribeButton.setEnabled(false);
+    this.subscribeButton.addActionListener(this);
+    this.unsubscribeButton = new JButton("Отписаться");
+    this.unsubscribeButton.setEnabled(false);
+    this.unsubscribeButton.addActionListener(this);
+    JPanel5.add(this.subscribeButton);
+Продолжение приложения А
+
+
+    JPanel5.add(this.unsubscribeButton);
+    
+    localJPanel4.add(JPanel5);
+    this.subscribePanel.add(panel3, "North");
+    this.subscribePanel.add(new JScrollPane(this.receivedData), "Center");
+    this.subscribePanel.add(localJPanel4, "East");
+  }  
+  
+  public boolean updateTopicList(String topic)
+  {
+    return true;
+  }
+  
+  @Override
+  public void actionPerformed(ActionEvent e)
+  {
+    String strTopic = this.topic.getText();
+    if (updateTopicList(strTopic)) {
+      this.mqttMgr.updatePublishTopicList(strTopic);
+    }
+      switch (e.getActionCommand()) {
+          case "Подписаться":
+              this.mqttMgr.subscription(strTopic, 1, true);
+              break;
+          case "Отписаться":
+              this.mqttMgr.subscription(strTopic, 0, false);
+              break;
+      }
+  }  
+  public void updateReceivedData(String topic, byte[] data, int QoS, boolean retained)
+  {
+    this.receivedData.setText(new String(data));
+  }  
+  public void enableButtons(boolean b)
+  {
+    this.subscribeButton.setEnabled(b);
+    this.unsubscribeButton.setEnabled(b);
+  }
+}
+ 
